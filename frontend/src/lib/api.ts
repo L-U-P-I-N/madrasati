@@ -1,5 +1,17 @@
+import { HttpError } from './demo/error';
+import { mockRequest } from './demo/router';
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api';
 const TOKEN_KEY = 'madrasati_token';
+
+/**
+ * وضع العرض التجريبي (Demo Mode) — لا يتصل بأي خادم حقيقي، بل يعيد بيانات
+ * ثابتة من الذاكرة عبر lib/demo. مخصّص للنشر على Vercel لعرض المنتج على
+ * العميل دون قاعدة بيانات حقيقية. لربط الخادم الفعلي لاحقا: احذف متغيّر
+ * NEXT_PUBLIC_DEMO_MODE (أو اجعله false) واضبط NEXT_PUBLIC_API_URL —
+ * لا حاجة لتعديل أي صفحة، فكل الشاشات تتعامل مع `api` نفسه.
+ */
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
 export class ApiError extends Error {
   status: number;
@@ -44,6 +56,23 @@ function buildUrl(path: string, query?: Query): string {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
+  if (DEMO_MODE) {
+    try {
+      return await mockRequest<T>(method, path, body, query);
+    } catch (err) {
+      if (err instanceof HttpError) {
+        if (err.status === 401 && typeof window !== 'undefined') {
+          setToken(null);
+          if (!window.location.pathname.startsWith('/login')) {
+            window.location.href = '/login';
+          }
+        }
+        throw new ApiError(err.message, err.status, err.errors);
+      }
+      throw new ApiError('تعذّر إتمام العملية. حاول مرة أخرى.', 0);
+    }
+  }
+
   const token = getToken();
 
   const response = await fetch(buildUrl(path, query), {
